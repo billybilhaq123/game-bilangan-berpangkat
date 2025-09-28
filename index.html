@@ -5,14 +5,393 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Game Bilangan Berpangkat</title>
   <style>
-    /* CSS omitted here for brevity, but would include full styles */
+    /* --- Reset & layout --- */
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#7c3aed;--good:#10b981;--bad:#ef4444;--muted:#9ca3af;}
+    *{box-sizing:border-box;font-family:Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071026 0%, #071a2a 100%);color:#e6eef8}
+    .container{max-width:980px;margin:28px auto;padding:18px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .menu{display:flex;gap:8px;align-items:center}
+    button, .btn{background:var(--accent);border:0;padding:10px 14px;border-radius:12px;color:white;font-weight:600;cursor:pointer}
+    .ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+
+    /* --- Card --- */
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:14px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+
+    /* --- Game area --- */
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    .status{display:flex;gap:12px;align-items:center}
+    .hearts{display:flex;gap:6px}
+    .heart{width:28px;height:28px;border-radius:6px;background:rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:center;font-weight:700}
+    .difficulty select{padding:8px;border-radius:8px;background:transparent;color:inherit;border:1px solid rgba(255,255,255,0.06)}
+    .question{font-size:28px;margin:18px 0;text-align:center}
+    .choices{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .choice{padding:14px;border-radius:12px;background:rgba(255,255,255,0.03);cursor:pointer;border:1px solid rgba(255,255,255,0.03);text-align:center;font-weight:700}
+    .choice:hover{transform:translateY(-4px);transition:all .15s}
+
+    /* --- Animations --- */
+    .pulse{animation:pulse 600ms ease}
+    @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+
+    /* --- Overlay results --- */
+    .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .toast{pointer-events:auto;background:rgba(4,6,15,0.8);padding:18px;border-radius:12px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+
+    /* --- Footer --- */
+    footer{margin-top:14px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;align-items:center}
+
+    /* --- Canvas (confetti) --- */
+    #fxCanvas{position:fixed;pointer-events:none;inset:0;z-index:999}
+
+    /* --- Mobile tweaks --- */
+    @media (max-width:600px){.choices{grid-template-columns:1fr}}    
   </style>
 </head>
 <body>
-  <h1>Game Bilangan Berpangkat</h1>
-  <p>Buka file ini di browser untuk memainkan game.</p>
+  <canvas id="fxCanvas"></canvas>
+  <div class="container">
+    <header>
+      <h1>Game Bilangan Berpangkat — Seru & Interaktif</h1>
+      <div class="menu">
+        <button id="btnStart">Mainkan</button>
+        <button id="btnReset" class="ghost">Reset</button>
+      </div>
+    </header>
+
+    <main class="card">
+      <div class="topbar">
+        <div class="status">
+          <div style="font-weight:700">Level: <span id="levelLabel">1</span></div>
+          <div class="hearts" id="hearts"></div>
+          <div style="font-weight:700">Skor: <span id="score">0</span></div>
+        </div>
+        <div class="difficulty">
+          <label style="margin-right:8px">Kesulitan</label>
+          <select id="difficulty">
+            <option value="easy">Mudah</option>
+            <option value="medium" selected>Sedang</option>
+            <option value="hard">Sulit</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="gameArea">
+        <div class="question card" id="questionBox">Tekan "Mainkan" untuk memulai</div>
+        <div class="choices" id="choices"></div>
+      </div>
+
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+        <div>Nyawa per level:</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="decLife" class="ghost">-</button>
+          <div id="lifeCount">3</div>
+          <button id="incLife" class="ghost">+</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;color:var(--muted);font-size:13px">Aturan singkat: Pilih jawaban yang benar. Jika salah, nyawa berkurang. Menyelesaikan target skor naik level. Soal menyesuaikan kesulitan.</div>
+    </main>
+
+    <footer>
+      <div>Pengembang: ChatGPT — Template permainan edukasi</div>
+      <div>Tips: Simpan sebagai <code>index.html</code> lalu buka di Chrome</div>
+    </footer>
+  </div>
+
   <script>
-    // JS omitted here for brevity, but would include full game logic
+  // --- Game configuration ---
+  const config = {
+    easy: {lives:3, rangeA:[2,6], rangeB:[1,3], ops:["simple"] , targetScore:40},
+    medium: {lives:3, rangeA:[2,10], rangeB:[1,4], ops:["simple","combine","power-of-power","fraction-base"], targetScore:80},
+    hard: {lives:4, rangeA:[2,16], rangeB:[1,6], ops:["combine","power-of-power","neg-exp","multi-term"], targetScore:140}
+  }
+
+  // --- State ---
+  let state = {running:false, level:1, lives:3, score:0, difficulty:'medium', currentAnswer:null, targetScore:0}
+
+  // DOM refs
+  const questionBox = document.getElementById('questionBox')
+  const choicesEl = document.getElementById('choices')
+  const heartsEl = document.getElementById('hearts')
+  const levelLabel = document.getElementById('levelLabel')
+  const scoreLabel = document.getElementById('score')
+  const difficultySel = document.getElementById('difficulty')
+  const btnStart = document.getElementById('btnStart')
+  const btnReset = document.getElementById('btnReset')
+  const lifeCount = document.getElementById('lifeCount')
+  const decLife = document.getElementById('decLife')
+  const incLife = document.getElementById('incLife')
+
+  // fx canvas for confetti
+  const fxCanvas = document.getElementById('fxCanvas')
+  const fxCtx = fxCanvas.getContext('2d')
+  fxCanvas.width = innerWidth; fxCanvas.height = innerHeight
+  window.addEventListener('resize', ()=>{fxCanvas.width = innerWidth; fxCanvas.height = innerHeight})
+
+  // utility: random int
+  const rand = (a,b)=>Math.floor(Math.random()*(b-a+1))+a
+
+  // render hearts
+  function renderHearts(){
+    heartsEl.innerHTML = ''
+    for(let i=0;i<state.lives;i++){
+      const h=document.createElement('div'); h.className='heart'; h.innerHTML='❤'; heartsEl.appendChild(h)
+    }
+  }
+
+  function setDifficulty(d){
+    state.difficulty = d
+    state.lives = config[d].lives
+    state.targetScore = config[d].targetScore
+    lifeCount.innerText = state.lives
+    renderHearts()
+  }
+
+  difficultySel.addEventListener('change', e=> setDifficulty(e.target.value))
+  decLife.addEventListener('click', ()=>{ state.lives = Math.max(1,state.lives-1); lifeCount.innerText=state.lives; renderHearts() })
+  incLife.addEventListener('click', ()=>{ state.lives = Math.min(10,state.lives+1); lifeCount.innerText=state.lives; renderHearts() })
+
+  // Start / Reset
+  btnStart.addEventListener('click', ()=>{
+    if(!state.running){
+      state.running=true; state.level=1; state.score=0; setDifficulty(difficultySel.value); startLevel()
+      btnStart.innerText='Berhenti'
+    } else { stopGame(); }
+  })
+  btnReset.addEventListener('click', ()=>{stopGame(true)})
+
+  function stopGame(reset=false){
+    state.running=false; btnStart.innerText='Mainkan'
+    if(reset){ state.level=1; state.score=0; questionBox.innerText='Game di-reset. Tekan "Mainkan" untuk mulai.' }
+    renderState()
+  }
+
+  function renderState(){ levelLabel.innerText = state.level; scoreLabel.innerText = state.score }
+
+  // --- Problem generator ---
+  function genProblem(){
+    const cfg = config[state.difficulty]
+    const ops = cfg.ops
+    const op = ops[rand(0, ops.length-1)]
+    if(op==='simple') return genSimple(cfg)
+    if(op==='combine') return genCombine(cfg)
+    if(op==='power-of-power') return genPowerOfPower(cfg)
+    if(op==='neg-exp') return genNegExp(cfg)
+    if(op==='multi-term') return genMultiTerm(cfg)
+    if(op==='fraction-base') return genFractionBase(cfg)
+    return genSimple(cfg)
+  }
+
+  function genSimple(cfg){
+    const a = rand(cfg.rangeA[0], cfg.rangeA[1])
+    const b = rand(cfg.rangeB[0], cfg.rangeB[1])
+    const expr = `${a}<sup>${b}</sup>`
+    const ans = Math.pow(a,b)
+    return {text:expr, answer:ans}
+  }
+
+  function genCombine(cfg){
+    // a^b * a^c = a^(b+c)
+    const a = rand(2,8)
+    const b = rand(1,5)
+    const c = rand(1,5)
+    const text = `${a}<sup>${b}</sup> × ${a}<sup>${c}</sup> = ? (sederhanakan)`
+    const answer = Math.pow(a,b+c)
+    return {text, answer}
+  }
+
+  function genPowerOfPower(cfg){
+    // (a^b)^c = a^(b*c)
+    const a = rand(2,6)
+    const b = rand(1,4)
+    const c = rand(1,4)
+    const text = `(${a}<sup>${b}</sup>)<sup>${c}</sup> = ?`
+    const answer = Math.pow(a, b*c)
+    return {text, answer}
+  }
+
+  function genNegExp(cfg){
+    // a^-b = 1/a^b -> create fraction-like decimal
+    const a = rand(2,10)
+    const b = rand(1,4)
+    const text = `${a}<sup>-${b}</sup> = ? (tulis sebagai pecahan)`
+    const answer = 1/Math.pow(a,b)
+    return {text, answer}
+  }
+
+  function genMultiTerm(cfg){
+    // (a^b)*(c^d)
+    const a = rand(2,6), b=rand(1,4), c=rand(2,6), d=rand(1,4)
+    const text = `${a}<sup>${b}</sup> × ${c}<sup>${d}</sup> = ?`;
+    const answer = Math.pow(a,b)*Math.pow(c,d)
+    return {text, answer}
+  }
+
+  function genFractionBase(cfg){
+    // (1/a)^b = 1/(a^b)
+    const a = rand(2,8), b = rand(1,4)
+    const text = `(1/${a})<sup>${b}</sup> = ?`;
+    const answer = Math.pow(1/a, b)
+    return {text, answer}
+  }
+
+  // --- Create choices (including plausible wrong answers) ---
+  function makeChoices(correct){
+    const choices = new Set()
+    choices.add(formatNumber(correct))
+    while(choices.size<4){
+      const perturb = perturbAnswer(correct)
+      choices.add(formatNumber(perturb))
+    }
+    return shuffle(Array.from(choices))
+  }
+
+  function perturbAnswer(x){
+    if(!isFinite(x) || Math.abs(x)>1e6){ // avoid huge numbers
+      return x + rand(-5,5)
+    }
+    const sign = Math.random()<0.5? -1:1
+    const factor = 1 + (Math.random()*0.5)
+    if(Math.abs(x) < 1){ // decimal answers -> small perturb
+      return +(x + sign*(Math.random()/Math.pow(10, rand(1,3)))).toPrecision(4)
+    }
+    let delta = Math.max(1, Math.round(Math.abs(x)* (0.08 + Math.random()*0.2)))
+    return x + (Math.random()<0.6? -delta: delta)
+  }
+
+  function formatNumber(n){
+    if(Number.isInteger(n)) return n.toString()
+    // try fraction form if 1/.. or simple decimal
+    if(Math.abs(n) < 1){
+      // attempt simple fraction for common cases: 1/2,1/4,1/8
+      const denom = [2,3,4,5,8,9][rand(0,5)]
+      return (Math.round(n*denom)===1)?`1/${denom}`: +(n.toFixed(4))
+    }
+    return +(n.toFixed(4))
+  }
+
+  function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+  // --- Gameplay logic ---
+  function startLevel(){
+    renderState(); generateAndShow()
+  }
+
+  function generateAndShow(){
+    const p = genProblem()
+    state.currentAnswer = p.answer
+    questionBox.innerHTML = p.text
+    const choices = makeChoices(p.answer)
+    choicesEl.innerHTML=''
+    choices.forEach(ch=>{
+      const d = document.createElement('div'); d.className='choice card'; d.innerHTML=ch; d.onclick = ()=>selectChoice(ch); choicesEl.appendChild(d)
+    })
+  }
+
+  function selectChoice(ch){
+    const correct = compareValues(ch, state.currentAnswer)
+    if(correct) handleCorrect() else handleWrong()
+  }
+
+  function compareValues(chText, correctVal){
+    // try parse 1/2 format
+    if(typeof chText==='string' && chText.includes('/')){
+      const parts = chText.split('/').map(s=>+s)
+      if(parts.length===2 && parts[1]!==0) return Math.abs(correctVal - (parts[0]/parts[1]))<1e-8
+    }
+    const parsed = +chText
+    if(!isNaN(parsed)) return Math.abs(parsed - correctVal) < 1e-6
+    return false
+  }
+
+  function handleCorrect(){
+    state.score += 10 + Math.floor(state.level*2)
+    showToast('BENAR!', true)
+    celebrate(true)
+    // level up condition
+    if(state.score >= state.level * state.targetScore){
+      state.level += 1
+      showToast('Level naik! 🎉', true)
+      animatePulse(questionBox)
+    }
+    renderState()
+    setTimeout(()=>{ if(state.running) generateAndShow() }, 700)
+  }
+
+  function handleWrong(){
+    state.lives -= 1
+    lifeCount.innerText = state.lives
+    renderHearts()
+    showToast('Salah — nyawa berkurang', false)
+    flashWrong(questionBox)
+    celebrate(false)
+    if(state.lives<=0){
+      gameOver()
+      return
+    }
+    renderState()
+    setTimeout(()=>{ if(state.running) generateAndShow() }, 900)
+  }
+
+  function gameOver(){
+    state.running=false
+    showToast(`Game Over — skor akhir ${state.score}`, false, 2200)
+    confettiBurst(600)
+    btnStart.innerText = 'Mainkan'
+  }
+
+  // --- Small UI helpers ---
+  function showToast(msg, good=true, ms=900){
+    const overlay=document.createElement('div'); overlay.className='overlay'; const t=document.createElement('div'); t.className='toast'; t.innerText=msg; t.style.borderColor = good? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'; overlay.appendChild(t); document.body.appendChild(overlay);
+    setTimeout(()=>{ overlay.remove() }, ms)
+  }
+  function animatePulse(el){ el.classList.add('pulse'); setTimeout(()=>el.classList.remove('pulse'),600) }
+  function flashWrong(el){ el.style.transition='box-shadow .2s'; el.style.boxShadow='0 0 0 6px rgba(239,68,68,0.14)'; setTimeout(()=>el.style.boxShadow='',300)}
+
+  // --- Confetti / celebration (simple particle system) ---
+  let particles=[]
+  function confettiBurst(count=120){
+    for(let i=0;i<count;i++){
+      particles.push({
+        x: rand(0, fxCanvas.width), y: -10,
+        vx: (Math.random()-0.5)*6, vy: Math.random()*6+2,
+        size: rand(4,10), life: rand(40,120), age:0, rot:Math.random()*360, rotSpeed:(Math.random()-0.5)*10
+      })
+    }
+  }
+  function celebrate(correct){ if(correct) confettiBurst(60); else confettiBurst(18) }
+
+  function tickFX(){
+    fxCtx.clearRect(0,0,fxCanvas.width,fxCanvas.height)
+    particles = particles.filter(p=>p.age < p.life)
+    particles.forEach(p=>{
+      p.age++; p.vy += 0.12; p.x += p.vx; p.y += p.vy; p.rot += p.rotSpeed
+      fxCtx.save(); fxCtx.translate(p.x,p.y); fxCtx.rotate(p.rot*Math.PI/180)
+      fxCtx.fillStyle = `rgba(${rand(80,255)},${rand(60,230)},${rand(60,255)},${1 - p.age/p.life})`
+      fxCtx.fillRect(-p.size/2, -p.size/2, p.size, p.size)
+      fxCtx.restore()
+    })
+    requestAnimationFrame(tickFX)
+  }
+  tickFX()
+
+  // --- Keyboard support: 1-4 answers ---
+  window.addEventListener('keydown', e=>{
+    if(!state.running) return
+    if(['1','2','3','4'].includes(e.key)){
+      const idx = Number(e.key)-1
+      const opt = choicesEl.children[idx]
+      if(opt) opt.click()
+    }
+  })
+
+  // initialize
+  setDifficulty('medium')
+  renderState()
+
+  // expose small save-as-file helper for download (user can save HTML)
+  // not shown in canvas file (instructions included at top)
   </script>
 </body>
 </html>
